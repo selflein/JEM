@@ -266,6 +266,7 @@ def OODAUC(f, args, device):
     
     transform_test_resize = tr.Compose([
         tr.Resize(32),
+        tr.CenterCrop(32),
         tr.ToTensor(),
         tr.Normalize((.5, .5, .5), (.5, .5, .5)),
         lambda x: x + args.sigma * t.randn_like(x)
@@ -441,7 +442,7 @@ if __name__ == "__main__":
     parser.add_argument("--score_fn", default="px", type=str,
                         choices=["px", "py", "pxgrad"], help="For OODAUC, chooses what score function we use.")
     parser.add_argument("--ood_dataset", default="svhn", type=str,
-                        choices=["svhn", "cifar_interp", "cifar_100", "celeba"],
+                        choices=["svhn", "cifar_interp", "cifar_100", "celeba" "lsun"],
                         help="Chooses which dataset to compare against for OOD")
     parser.add_argument("--dataset", default="cifar_test", type=str,
                         choices=["cifar_train", "cifar_test", "svhn_test", "svhn_train"],
