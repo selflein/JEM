@@ -287,8 +287,6 @@ def OODAUC(f, args, device):
 
     dload_fake = DataLoader(dset_fake, batch_size=100, shuffle=True, num_workers=4, drop_last=False)
     print(len(dload_real), len(dload_fake))
-    real_scores = []
-    print("Real scores...")
 
     def score_fn(x):
         if args.score_fn == "px":
@@ -298,6 +296,8 @@ def OODAUC(f, args, device):
         else:
             return -grad_norm(x).detach().cpu()
 
+    print("Real scores...")
+    real_scores = []
     targets_real = []
     preds_real = []
     for x, target in dload_real:
@@ -307,9 +307,11 @@ def OODAUC(f, args, device):
 
         targets_real.append(to_np(target))
         preds_real.append(to_np(t.softmax(f.classify(x), 1)))
-    fake_scores = []
-    print("Fake scores...")
 
+    classification_calibration(np.squeeze(np.concatenate(targets_real)), np.concatenate(preds_real), tag="ID")
+
+    print("Fake scores...")
+    fake_scores = []
     targets_fake = []
     preds_fake = []
     if args.ood_dataset == "cifar_interp":
@@ -334,7 +336,6 @@ def OODAUC(f, args, device):
             preds_fake.append(to_np(t.softmax(f.classify(x), 1)))
 
     classification_calibration(np.squeeze(np.concatenate(targets_fake)), np.concatenate(preds_fake), tag="OOD")
-    classification_calibration(np.squeeze(np.concatenate(targets_real)), np.concatenate(preds_real), tag="ID")
 
     real_scores = np.concatenate(real_scores)
     fake_scores = np.concatenate(fake_scores)
