@@ -22,6 +22,7 @@ import sys
 import argparse
 import numpy as np
 import wideresnet
+from calibration import classification_calibration
 import pdb
 
 from tqdm import tqdm
@@ -33,6 +34,10 @@ seed = 1
 im_sz = 32
 n_ch = 3
 n_classes = 10
+
+
+def to_np(tensor):
+    return tensor.detach().cpu().numpy()
 
 
 class DataSubset(Dataset):
@@ -258,20 +263,25 @@ def OODAUC(f, args, device):
          tr.Normalize((.5, .5, .5), (.5, .5, .5)),
          lambda x: x + args.sigma * t.randn_like(x)]
     )
+    
+    transform_test_resize = tr.Compose([
+        tr.Resize(32),
+        tr.ToTensor(),
+        tr.Normalize((.5, .5, .5), (.5, .5, .5)),
+        lambda x: x + args.sigma * t.randn_like(x)
+    ])
 
     dset_real = tv.datasets.CIFAR10(root="../data", transform=transform_test, download=True, train=False)
     dload_real = DataLoader(dset_real, batch_size=100, shuffle=False, num_workers=4, drop_last=False)
 
     if args.ood_dataset == "svhn":
         dset_fake = tv.datasets.SVHN(root="../data", transform=transform_test, download=True, split="test")
+    elif args.ood_dataset == "lsun":
+        dset_fake = tv.datasets.LSUN(root="../data/lsun", transform=transform_test_resize, classes="test")
     elif args.ood_dataset == "cifar_100":
         dset_fake = tv.datasets.CIFAR100(root="../data", transform=transform_test, download=True, train=False)
     elif args.ood_dataset == "celeba":
-        dset_fake = tv.datasets.ImageFolder(root="/scratch/gobi1/gwohl/CelebA/splits",
-                                            transform=tr.Compose([tr.Resize(32),
-                                                       tr.ToTensor(),
-                                                       tr.Normalize((.5, .5, .5), (.5, .5, .5)),
-                                                       lambda x: x + args.sigma * t.randn_like(x)]))
+        dset_fake = tv.datasets.ImageFolder(root="/scratch/gobi1/gwohl/CelebA/splits", transform=transform_test_resize)
     else:
         dset_fake = tv.datasets.CIFAR10(root="../data", transform=transform_test, download=True, train=False)
 
@@ -288,29 +298,44 @@ def OODAUC(f, args, device):
         else:
             return -grad_norm(x).detach().cpu()
 
-    for x, _ in dload_real:
+    targets_real = []
+    preds_real = []
+    for x, target in dload_real:
         x = x.to(device)
         scores = score_fn(x)
         real_scores.append(scores.numpy())
-        print(scores.mean())
+
+        targets_real.append(to_np(target))
+        preds_real.append(to_np(t.softmax(f.classify(x), 1)))
     fake_scores = []
     print("Fake scores...")
+
+    targets_fake = []
+    preds_fake = []
     if args.ood_dataset == "cifar_interp":
         last_batch = None
-        for i, (x, _) in enumerate(dload_fake):
+        for i, (x, target) in enumerate(dload_fake):
             x = x.to(device)
             if i > 0:
                 x_mix = (x + last_batch) / 2 + args.sigma * t.randn_like(x)
                 scores = score_fn(x_mix)
+
                 fake_scores.append(scores.numpy())
-                print(scores.mean())
+                targets_fake.append(to_np(target))
+                preds_fake.append(to_np(t.softmax(f.classify(x), 1)))
             last_batch = x
     else:
-        for i, (x, _) in enumerate(dload_fake):
+        for i, (x, target) in enumerate(dload_fake):
             x = x.to(device)
             scores = score_fn(x)
             fake_scores.append(scores.numpy())
-            print(scores.mean())
+
+            targets_fake.append(to_np(target))
+            preds_fake.append(to_np(t.softmax(f.classify(x), 1)))
+
+    classification_calibration(np.squeeze(np.concatenate(targets_fake)), np.concatenate(preds_fake), tag="OOD")
+    classification_calibration(np.squeeze(np.concatenate(targets_real)), np.concatenate(preds_real), tag="ID")
+
     real_scores = np.concatenate(real_scores)
     fake_scores = np.concatenate(fake_scores)
     real_labels = np.ones_like(real_scores)
